@@ -44,10 +44,10 @@ jobs:
           push: true
           # Versions live in the Dockerfile ARGs (single source of truth); add a
           # matrix with build-args here when a second Node line appears.
+          # No :latest tag by design: consumers pin an explicit line (or date tag).
           tags: |
             ${{ env.IMAGE }}:24
             ${{ env.IMAGE }}:24.21.0-${{ steps.tags.outputs.date_tag }}
-            ${{ env.IMAGE }}:latest
           # Layer cache in the GitHub Actions cache backend; mode=max lets
           # later builds reuse every layer.
           cache-from: type=gha

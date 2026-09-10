@@ -13,9 +13,9 @@ Image: `ghcr.io/atoz-project/arc-runner-node`
 |---|---|---|
 | `:24` | yes, per patch release | floating major line — what scale sets should consume |
 | `:<node>-<date><run>` (e.g. `:24.21.0-202609101`) | never | immutable build, for pinned rollouts and ECI ImageCache |
-| `:latest` | yes | currently the 24 line |
 
-## Using it in a workflow
+There is deliberately **no `:latest` tag**: consumers pin an explicit line (or
+date tag) so "what is running" is never time-dependent.
 
 Select the scale set per job — the label *is* the image choice:
 
