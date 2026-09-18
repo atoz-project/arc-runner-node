@@ -42,6 +42,7 @@ with the download prompt off, so `pnpm`/`yarn` activate non-interactively.
 | GitHub Actions Runner | `2.337.0` (pinned base image) | [releases](https://github.com/actions/runner/releases) |
 | Node.js | `24.21.0` linux/x64 | sha256-verified download from nodejs.org |
 | Tools | `build-essential`, `git`, `jq`, `zstd`, `curl`, `ca-certificates` | via apt; build-essential covers node-gyp native modules (python3 is in the base image) |
+| `unzip` | via apt | required by `oven-sh/setup-bun` to extract the Bun release zip — consumer bun CI no longer needs a "Provide unzip" workaround (see [ADR-0001](docs/adr/0001-bun-not-baked-into-image.md)) |
 
 Versions are pinned `ARG`s at the top of the [Dockerfile](Dockerfile).
 

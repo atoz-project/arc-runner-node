@@ -14,7 +14,8 @@ USER root
 
 # CI utilities. build-essential covers node-gyp native modules (gcc/g++/make/
 # libc headers); python3 comes from the base image. zstd is the compression
-# format cache backends prefer.
+# format cache backends prefer. unzip is required by oven-sh/setup-bun, which
+# extracts the Bun release zip at job time (see docs/adr/0001).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -22,6 +23,7 @@ RUN apt-get update \
         curl \
         git \
         jq \
+        unzip \
         zstd \
     && rm -rf /var/lib/apt/lists/*
 
@@ -66,7 +68,11 @@ RUN mkdir -p /home/runner/.cache \
 
 USER runner
 
-# Smoke check at build time: fail the build if anything does not run from this image.
+# Smoke check at build time: fail the build if anything does not run from this
+# image. make (from build-essential) and unzip are checked explicitly: consumer
+# jobs invoke `make web-*` targets, and oven-sh/setup-bun needs unzip.
 RUN node --version \
     && npm --version \
-    && corepack --version
+    && corepack --version \
+    && make --version \
+    && unzip -v
