@@ -1,0 +1,68 @@
+# arc-runner-set-node scale set 的 Helm values(chart gha-runner-scale-set)。
+#
+# 本文件是源事实(source of truth)。改动后用以下命令应用:
+#   helm upgrade arc-runner-set-node \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.14.2 -n arc-runners --kube-context k8s-sg-dev \
+#     -f deploy/arc-runner-set-node.values.yaml
+#
+# 血泪教训(2026-09-10/11 事故,与 golang/rust 两个 set 相同):
+# - --version 必须钉死,且次版本必须与 controller 一致(controller 为 0.14.2;
+#   0.14.x chart 配 0.13.0 controller 曾静默丢 listener —— 2026-09-11 事故)。
+# - 永远不要用过期的本文件副本做 upgrade:helm 会整体替换渲染后的 spec,
+#   本文件与线上 CR 之间的任何漂移都会被回滚。
+# - scale set 的名字就是 `runs-on` 标签:release 名 `arc-runner-set-node`
+#   必须与消费方 workflow 的 runs-on 完全一致,差一个字符都匹配不上。
+githubConfigSecret: github-config-secret
+githubConfigUrl: https://github.com/atoz-project
+minRunners: 1
+namespaceOverride: ""
+runnerGroup: arc-public
+template:
+  spec:
+    # fsGroup 设为 runner 用户的 uid(1001),让挂载进来的缓存卷对 runner
+    # 可写(与 arc-runner-golang 的约定一致)。
+    securityContext:
+      fsGroup: 1001
+    # 单容器:无 docker-dind sidecar。no DinD 是本镜像的硬设计契约
+    # (见 README "No DinD by design"),此处不得添加 dind。
+    containers:
+    - command: ["/home/runner/run.sh"]
+      # 2026-09-18 抖动根因(通用 set 同名字段有完整记录):不显式设置
+      # command 时 pod 走镜像默认 ENTRYPOINT,在 ECI 上不到 1 秒退出 0,
+      # runner 二进制根本没启动,ERS 无限重建 pod(~15 秒一个)。
+      # 原生 entrypoint + ECI = 必坏;永远显式设置 command。
+      image: ghcr.io/atoz-project/arc-runner-node:24
+      # 镜像 tag 约定与 golang/rust 不同(见 README):本仓库的 scale set
+      # 固定消费浮动主版本 tag `:24`,不可变的 `:<node 版本>-<日期><run>`
+      # tag 只用于钉版回滚。代价:浮动 tag 使 ECI ImageCache 对本 set 不适用
+      # (ImageCache 按精确 name:tag 匹配,只认不可变 tag)——需要 ImageCache
+      # 时把这里改成钉某个日期 tag。
+      name: runner
+      volumeMounts:
+        # 缓存目录契约(见 README):npm(`npm_config_cache`)、pnpm/yarn
+        # (corepack 默认)的缓存都收敛在 /home/runner/.cache 下,一个卷
+        # 即可跨临时 runner pod 持久化全部缓存。
+        - name: cache
+          mountPath: /home/runner/.cache
+      # 资源与磁盘刻意不设:沿用 ECI 默认规格。golang set 的 4C/8Gi 源于
+      # cellar#161 并发 bug、+20Gi 临时盘注解源于 go test -race 的 ENOSPC
+      # 事故,均与 node 无关;node 侧缓存走下面的 PV。真出现瓶颈再针对性
+      # 调整,别提前抄 golang 的事故配置。
+    volumes:
+      # 共享缓存卷:引用一个事先手工创建的 RWX PVC(设计依据见
+      # arc-runner-golang docs/adr/0001;RWX 让所有 runner pod 挂同一份
+      # 缓存)。应用本文件前必须先建好 PVC,否则 pod 无法调度:
+      #   apiVersion: v1
+      #   kind: PersistentVolumeClaim
+      #   metadata: { name: arc-node-cache, namespace: arc-runners }
+      #   spec:
+      #     accessModes: ["ReadWriteMany"]
+      #     storageClassName: <RWX storage class,如 NFS 后端>
+      #     resources: { requests: { storage: 100Gi } }
+      # 集群没有 RWX provisioner 时:ReadWriteOnce + maxRunners: 1,
+      # 或整段去掉这个 volume(缓存仍收敛在 /home/runner/.cache,只是只在
+      # 单个 pod 生命周期内有效)。
+      - name: cache
+        persistentVolumeClaim:
+          claimName: arc-node-cache

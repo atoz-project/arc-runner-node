@@ -1,0 +1,51 @@
+# 通用 arc-runner-set scale set(纯 Ubuntu,stock runner 镜像)的 Helm
+# values(chart gha-runner-scale-set)。
+#
+# 本文件镜像自 arc-runner-golang 仓库的同名文件:该 set 此前是无 values
+# 文件的临时部署(release revision 6,2026-09-11),2026-09-18 在 golang
+# 仓库用 `helm get values arc-runner-set` 捕获入库。两份拷贝需保持同步;
+# 应用命令:
+#   helm upgrade arc-runner-set \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.14.2 -n arc-runners --kube-context k8s-sg-dev \
+#     -f deploy/arc-runner-set.values.yaml
+#
+# chart 钉版规则与 deploy/arc-runner-set-node.values.yaml 相同
+# (controller 为 0.14.2)。已知风险已于 2026-09-18 解决:镜像从
+# `actions-runner:latest` 钉到不可变 tag(钉版时已校验 digest 一致)。
+githubConfigSecret: github-config-secret
+githubConfigUrl: https://github.com/atoz-project
+minRunners: 1
+namespaceOverride: ""
+runnerGroup: arc-public
+template:
+  metadata:
+    annotations:
+      # 2026-09-18:x-platform 的 check job(runs-on: arc-runner-set,纯
+      # Ubuntu + apt build-essential + 运行时下载 Go + actions/cache 恢复 +
+      # `go test -race -count=1 -coverprofile`,95+ 包)死于
+      # `mkdir /tmp/go-buildXXX/gocoverdir: no space left on device`
+      # (3 个 pod:PR #245、PR #259、main 分支)。这些 pod 用 stock 镜像,
+      # 跑在 ECI 默认 30Gi 临时盘上、没有任何磁盘配置。+20GiB 为计费项
+      # (golang set 上同一开关实测 30G→50G)。
+      k8s.aliyun.com/eci-extra-ephemeral-storage: "20Gi"
+  spec:
+    containers:
+    - command: ["/home/runner/run.sh"]
+      # 2026-09-18 从 :latest 钉到不可变 tag(钉版时 digest 校验一致:
+      # sha256:e5496277);浮动 tag 会随每次 runner 发布静默漂移,并使 ECI
+      # ImageCache(精确 name:tag 匹配)失效。升版必须有意为之并附发布
+      # 说明 —— 与 golang/rust set 同一约定。
+      image: ghcr.io/actions/actions-runner:2.337.0
+      name: runner
+      # 2026-09-18 抖动根因:不显式设置 command 时 pod 走镜像默认
+      # ENTRYPOINT,在 ECI 上不到 1 秒退出 0(已用 `kubectl run` 最小复现,
+      # 与 ARC 无关),每个 runner pod 在 runner 二进制启动前就
+      # "Completed",ERS 无限重建 pod(~15 秒一个)。golang/rust set 设置了
+      # command,从未抖动。原生 entrypoint + ECI = 必坏;永远显式设置。
+      resources:
+        # 上面 ECI 注解的可移植兜底(调度准入 + 到 limit 时 kubelet 干净
+        # 驱逐,在非 ECI 环境同样生效)。刻意不设 cpu/memory —— 保持 ECI
+        # 默认规格。
+        requests: { ephemeral-storage: 20Gi }
+        limits:   { ephemeral-storage: 20Gi }
