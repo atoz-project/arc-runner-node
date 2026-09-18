@@ -45,10 +45,15 @@ template:
         # 即可跨临时 runner pod 持久化全部缓存。
         - name: cache
           mountPath: /home/runner/.cache
-      # 资源与磁盘刻意不设:沿用 ECI 默认规格。golang set 的 4C/8Gi 源于
-      # cellar#161 并发 bug、+20Gi 临时盘注解源于 go test -race 的 ENOSPC
-      # 事故,均与 node 无关;node 侧缓存走下面的 PV。真出现瓶颈再针对性
-      # 调整,别提前抄 golang 的事故配置。
+      # 内存有已知下限:x-platform 的 web job(vite build,本 set 的未来消费方)
+      # 在默认规格(2C/4Gi)的 ECI pod 上被 SIGKILL/OOM(见 x-platform PR #126),
+      # 只有在 golang set 的 4C/8Gi pod 上才跑稳 —— 直接按 golang 的规格起步。
+      # requests==limits → Guaranteed QoS,ECI 按 4C/8Gi 规格开实例。
+      resources:
+        requests: { cpu: "4", memory: 8Gi }
+        limits:   { cpu: "4", memory: 8Gi }
+      # 磁盘则不加 ECI 临时盘注解:golang 的 +20Gi 源于 go test -race 的
+      # ENOSPC 事故,node 侧无对应证据;缓存走下面的 PV。真出现 ENOSPC 再加。
     volumes:
       # 共享缓存卷:引用一个事先手工创建的 RWX PVC(设计依据见
       # arc-runner-golang docs/adr/0001;RWX 让所有 runner pod 挂同一份
