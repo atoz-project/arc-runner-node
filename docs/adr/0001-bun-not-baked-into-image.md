@@ -30,6 +30,7 @@ hostedtoolcache 布局烘进镜像,自然的问题是:Bun 是否应享受同等�
 
 - Bun 项目的 workflow 多一个 setup 步骤,耗时以秒计;Bun 版本由各
   消费方自己钉,与本仓库解耦。
+- 镜像内置 unzip（setup-bun 解压 Bun 发布 zip 的运行时依赖），消费方无需 workaround。
 - 镜像维护面不变:本仓库不需要跟踪 Bun 的发布节奏。
 - 重新评估的时机:Bun 项目成为本 scale set 的主要消费方,且
   `setup-bun` 被证明是瓶颈(下载耗时或稳定性)时。
