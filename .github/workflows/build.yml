@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ["*"]
+    # 只有影响镜像内容的变更才触发完整镜像重建:docs/、deploy/、ADR 等纯
+    # 文档/部署变更不值得重新构建(对齐 golang 仓库的做法;本仓库无
+    # VERSION 文件,无需列入)。手动 workflow_dispatch 不受此过滤影响。
+    paths: ["Dockerfile", ".github/workflows/build.yml"]
   workflow_dispatch:
 
 permissions:
