@@ -77,15 +77,12 @@ GitHub-hosted runners.
 
 ## 部署 scale set(运维)
 
-`deploy/` 是 scale set 配置的源事实(source of truth),结构与 arc-runner-golang 一致:
-
-- `deploy/arc-runner-set-node.values.yaml` — 本镜像的 scale set;helm release 名
-  `arc-runner-set-node` 就是消费方 workflow 里的 `runs-on` 标签。镜像固定消费浮动
-  tag `:24`,并把 `/home/runner/.cache` 持久缓存卷挂上(引用事先创建的 RWX PVC
-  `arc-node-cache`,`fsGroup: 1001` 保证 runner 用户可写)。
-- `deploy/arc-runner-set.values.yaml` — 纯 Ubuntu 通用 scale set,镜像自
-  arc-runner-golang 的同名文件(该 set 的线上捕获以 golang 仓库为准,改动需
-  两边同步)。
+`deploy/arc-runner-set-node.values.yaml` 是本仓库 scale set 配置的源事实
+(source of truth):helm release 名 `arc-runner-set-node` 就是消费方 workflow
+里的 `runs-on` 标签。镜像固定消费浮动 tag `:24`,并把 `/home/runner/.cache`
+持久缓存卷挂上(引用事先创建的 RWX PVC `arc-node-cache`,`fsGroup: 1001`
+保证 runner 用户可写)。纯 Ubuntu 通用 scale set(`arc-runner-set`)的 values
+由 arc-runner-golang 仓库持有并维护,本仓库不重复携带。
 
 安装 / 升级(chart 次版本必须与 controller 一致,当前 0.14.2;不要用本地过期副本
 做 upgrade —— helm 会整体替换渲染后的 spec,漂移会被回滚):
