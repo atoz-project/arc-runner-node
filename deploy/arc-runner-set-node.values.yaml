@@ -53,21 +53,16 @@ template:
         requests: { cpu: "4", memory: 8Gi }
         limits:   { cpu: "4", memory: 8Gi }
       # 磁盘则不加 ECI 临时盘注解:golang 的 +20Gi 源于 go test -race 的
-      # ENOSPC 事故,node 侧无对应证据;缓存走下面的 PV。真出现 ENOSPC 再加。
+      # ENOSPC 事故,node 侧无对应证据;缓存走下面的 NFS 卷。真出现 ENOSPC 再加。
     volumes:
-      # 共享缓存卷:引用一个事先手工创建的 RWX PVC(设计依据见
-      # arc-runner-golang docs/adr/0001;RWX 让所有 runner pod 挂同一份
-      # 缓存)。应用本文件前必须先建好 PVC,否则 pod 无法调度:
-      #   apiVersion: v1
-      #   kind: PersistentVolumeClaim
-      #   metadata: { name: arc-node-cache, namespace: arc-runners }
-      #   spec:
-      #     accessModes: ["ReadWriteMany"]
-      #     storageClassName: <RWX storage class,如 NFS 后端>
-      #     resources: { requests: { storage: 100Gi } }
-      # 集群没有 RWX provisioner 时:ReadWriteOnce + maxRunners: 1,
-      # 或整段去掉这个 volume(缓存仍收敛在 /home/runner/.cache,只是只在
-      # 单个 pod 生命周期内有效)。
+      # 共享缓存卷:阿里云 NAS 容量型(NFS),RWX,所有 runner pod 挂同一份
+      # 缓存(设计依据见 arc-runner-golang docs/adr/0001)。集群是 ACK
+      # Serverless、无任何 CSI driver,故用 in-tree nfs volume 直连挂载点,
+      # 不建 PV/PVC。文件系统 071wrg7528z1wkkb61l(ap-southeast-1a,账号
+      # security-labs,tag owner=arc-runner-node),挂载点在集群 VPC 的 1a
+      # vSwitch。重建:aliyun nas CreateFileSystem + CreateMountTarget,
+      # 然后把下面的 server 换成新挂载点域名。
       - name: cache
-        persistentVolumeClaim:
-          claimName: arc-node-cache
+        nfs:
+          server: 071wrg7528z1wkkb61l-fbj64.ap-southeast-1.nas.aliyuncs.com
+          path: /
