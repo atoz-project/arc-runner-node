@@ -1,0 +1,74 @@
+name: prune-ghcr
+
+# 手动清理 GHCR 镜像版本。本仓库的 tag 约定(见 README):
+#   - `24`                            浮动主版本 tag,scale set 的消费入口
+#   - `24.*-*`(如 24.21.0-202609101) 每次构建的不可变 tag
+# 保留规则:浮动 tag `24` 永远保留;最新的一个不可变 tag 保留(回滚用);
+# 无 tag 的 manifest(索引的子 manifest / attestation)一律保留——删除
+# 可能让被保留 tag 引用的镜像残缺;其余过期的 `24.*-*` 版本仅在
+# really_delete=true 时真正删除,否则只输出 dry-run 计划。
+on:
+  workflow_dispatch:
+    inputs:
+      really_delete:
+        description: "Actually delete (false = dry-run plan only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      # 无需 checkout:保留规则完全由 tag 命名约定推导,本仓库没有 VERSION 文件。
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 版本清单:版本 id、created_at、逗号拼接的 tag 列表。
+          gh api --paginate "/orgs/atoz-project/packages/container/arc-runner-node/versions" \
+            --jq '.[] | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' > /tmp/versions.tsv
+
+          # 最新的一个不可变构建 tag(24.*-*)所在的版本 id,按 created_at 取新。
+          # 该版本通常同时挂着浮动 tag `24`(刚漂移过去),两条保留规则都命中它。
+          NEWEST_ID=$(awk -F'\t' '
+            $3 ~ /(^|,)24\.[0-9]+\.[0-9]+-[0-9]+(,|$)/ && $2 > latest { latest=$2; id=$1 }
+            END { print id }' /tmp/versions.tsv)
+          echo "newest immutable build version: ${NEWEST_ID:-<none>}"
+
+          : > /tmp/delete.txt
+          while IFS=$'\t' read -r id created tags; do
+            if [[ ",$tags," == *",24,"* ]]; then
+              # 浮动主版本 tag:scale set 固定消费 `:24`,永远保留。
+              echo "KEEP    $id ($tags) [floating line tag]"
+            elif [[ -n "$NEWEST_ID" && "$id" == "$NEWEST_ID" ]]; then
+              # 最新的一个不可变构建 tag,留作回滚与排查。
+              echo "KEEP    $id ($tags) [newest immutable build]"
+            elif [[ -z "$tags" ]]; then
+              # 无 tag 行是索引的子 manifest / attestation,可能被保留中的
+              # tag 引用;删错会让线上镜像残缺。一律不动。
+              echo "SKIP    $id (untagged child manifest)"
+            elif tr ',' '\n' <<<"$tags" | grep -qvE '^24\.[0-9]+\.[0-9]+-[0-9]+$'; then
+              # 出现命名约定之外的 tag(本仓库不产出 :latest):不猜,留人工确认。
+              echo "SKIP    $id ($tags) [unrecognized tag pattern]"
+            else
+              echo "DELETE  $id ($tags)"
+              echo "$id" >> /tmp/delete.txt
+            fi
+          done < /tmp/versions.tsv
+
+      - name: Delete
+        if: inputs.really_delete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          while read -r id; do
+            echo "deleting version $id"
+            gh api -X DELETE "/orgs/atoz-project/packages/container/arc-runner-node/versions/$id"
+          done < /tmp/delete.txt
